@@ -1,0 +1,124 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+
+body {
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  font-family: 'Outfit', sans-serif;
+  min-height: 100vh;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-container {
+  max-width: 600px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding: 40px;
+  border-radius: 24px;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.6);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  margin: 20px;
+}
+
+h1 {
+  font-weight: 700;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 30px;
+}
+
+.input-group {
+  box-shadow: 0 8px 20px rgba(0,0,0,0.05);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.form-control {
+  border: none;
+  padding: 15px 20px;
+  font-size: 1.1rem;
+  font-weight: 400;
+  background: rgba(255,255,255,0.9);
+}
+
+.form-control:focus {
+  box-shadow: none;
+  background: white;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  padding: 0 25px;
+  font-weight: 600;
+  transition: all 0.3s ease;
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(118, 75, 162, 0.4);
+}
+
+.list-group {
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.03);
+}
+
+.reminder-item {
+  border: none;
+  border-bottom: 1px solid rgba(0,0,0,0.05);
+  padding: 15px 20px;
+  transition: all 0.2s ease-in-out;
+  background: rgba(255,255,255,0.7);
+}
+
+.reminder-item:last-child {
+  border-bottom: none;
+}
+
+.reminder-item:hover {
+  background-color: white;
+  transform: scale(1.02);
+  z-index: 1;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+}
+
+.reminder-item.active-item {
+  background-color: #f8f9fa;
+}
+
+.btn-danger {
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+  background: #ff6b6b;
+  border: none;
+}
+
+.btn-danger:hover {
+  background: #fa5252;
+  transform: rotate(90deg);
+}
+
+.empty-state {
+  opacity: 0.6;
+  font-weight: 300;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 0.5; }
+  50% { opacity: 0.8; }
+  100% { opacity: 0.5; }
+}

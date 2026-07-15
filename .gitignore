@@ -1,0 +1,40 @@
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*.iml
+
+# Node / Frontend
+node_modules/
+dist/
+build/
+npm-debug.log
+yarn-error.log
+
+# Gradle / Backend
+.gradle/
+backend/build/
+backend/.gradle/
+backend/out/
+backend/bin/
+
+# Java
+*.class
+*.jar
+*.war
+*.ear
+hs_err_pid*
+
+# Database / SQLite
+*.db
+*.db3
+*.sqlite
+*.sqlite3
+
+# Environment
+.env

@@ -1,0 +1,16 @@
+spring:
+  application:
+    name: reminders
+  datasource:
+    url: jdbc:sqlite:reminders.db3
+    driver-class-name: org.sqlite.JDBC
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+
+server:
+  port: 8080
+
+reminders:
+  db-folder: ${DB_FOLDER:.}
