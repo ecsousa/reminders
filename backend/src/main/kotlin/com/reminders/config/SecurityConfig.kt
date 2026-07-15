@@ -1,5 +1,7 @@
 package com.reminders.config
 
+import com.reminders.util.name
+import com.reminders.util.username
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
@@ -9,7 +11,6 @@ import org.springframework.web.server.ServerWebExchange
 import org.springframework.web.server.WebFilter
 import org.springframework.web.server.WebFilterChain
 import reactor.core.publisher.Mono
-import org.springframework.beans.factory.annotation.Value
 
 @Configuration
 class SecurityConfig {
@@ -27,8 +28,8 @@ class SecurityConfig {
                 return@WebFilter exchange.response.setComplete()
             }
 
-            exchange.attributes["username"] = username
-            exchange.attributes["name"] = name
+            exchange.username = username
+            exchange.name = name
             chain.filter(exchange)
         }
     }
@@ -36,13 +37,10 @@ class SecurityConfig {
     @Bean
     @Profile("dev")
     @Order(1)
-    fun devAuthFilter(
-        @Value("\${reminders.dev.username}") devUsername: String,
-        @Value("\${reminders.dev.name}") devName: String
-    ): WebFilter {
+    fun devAuthFilter(appConfig: AppConfig): WebFilter {
         return WebFilter { exchange: ServerWebExchange, chain: WebFilterChain ->
-            exchange.attributes["username"] = devUsername
-            exchange.attributes["name"] = devName
+            exchange.username = appConfig.dev.username
+            exchange.name = appConfig.dev.name
             chain.filter(exchange)
         }
     }

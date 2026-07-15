@@ -5,6 +5,8 @@ import com.reminders.model.ReminderCreateRequest
 import com.reminders.model.RemindersResponse
 import com.reminders.model.UserInfoResponse
 import com.reminders.repository.ReminderRepository
+import com.reminders.util.name
+import com.reminders.util.username
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
@@ -13,21 +15,21 @@ import kotlinx.coroutines.reactive.awaitFirstOrNull
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.awaitExchange
 import reactor.core.publisher.Mono
-import org.springframework.beans.factory.annotation.Value
+import com.reminders.config.AppConfig
 
 @RestController
 @RequestMapping("/api")
 class ReminderController(
     private val reminderRepository: ReminderRepository,
-    @Value("\${reminders.apprise-url}") private val appriseEndpoint: String
+    private val appConfig: AppConfig
 ) {
 
     private val webClient = WebClient.create()
 
     @GetMapping("/user-info")
     suspend fun getUserInfo(exchange: ServerWebExchange): UserInfoResponse {
-        val username = exchange.attributes["username"] as String
-        val name = exchange.attributes["name"] as String
+        val username = exchange.username
+        val name = exchange.name
         return UserInfoResponse(username, name)
     }
 
@@ -36,7 +38,7 @@ class ReminderController(
         @RequestBody request: ReminderCreateRequest,
         exchange: ServerWebExchange
     ): Reminder {
-        val username = exchange.attributes["username"] as String
+        val username = exchange.username
         val reminder = Reminder(
             username = username,
             reminder_message = request.reminderMessage
@@ -46,7 +48,7 @@ class ReminderController(
 
     @GetMapping("/reminders")
     suspend fun getReminders(exchange: ServerWebExchange): RemindersResponse {
-        val username = exchange.attributes["username"] as String
+        val username = exchange.username
         val reminders = reminderRepository.findAllByUsername(username)
         return RemindersResponse(reminders)
     }
@@ -56,7 +58,7 @@ class ReminderController(
         @PathVariable id: Long,
         exchange: ServerWebExchange
     ): ResponseEntity<Void> {
-        val username = exchange.attributes["username"] as String
+        val username = exchange.username
         val deletedCount = reminderRepository.deleteByIdAndUsername(id, username)
         return if (deletedCount > 0) {
             ResponseEntity.noContent().build()
@@ -76,7 +78,7 @@ class ReminderController(
                 while (!success && attempts < 3) {
                     try {
                         val response = webClient.post()
-                            .uri(appriseEndpoint)
+                            .uri(appConfig.appriseUrl)
                             .bodyValue(mapOf("body" to reminder.reminder_message, "title" to "Reminder") as Any)
                             .exchangeToMono { res -> 
                                 if (res.statusCode().is2xxSuccessful) {
