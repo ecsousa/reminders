@@ -33,8 +33,6 @@ dependencies {
     implementation("tools.jackson.module:jackson-module-kotlin")
     
     // SQLite and JDBC
-    implementation("org.springframework.boot:spring-boot-starter-data-r2dbc")
-    implementation("io.r2dbc:r2dbc-spi")
     implementation("org.xerial:sqlite-jdbc:3.45.2.0")
 
     // Kotlin coroutines
@@ -42,10 +40,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor")
     implementation("io.projectreactor.kotlin:reactor-kotlin-extensions")
 
-    // For SQLite R2DBC support, we might need a specific driver or we can use spring-data-r2dbc.
-    // Wait, there is no official r2dbc sqlite driver, but we could use standard JDBC with Kotlin Coroutines 
-    // running on Dispatchers.IO, or use `io.r2dbc:r2dbc-sqlite` which exists?
-    // Let's use JDBC for SQLite with Spring Boot Data JDBC since SQLite doesn't natively support R2DBC very well,
+    // Let's use JDBC for SQLite with Spring Boot Data JDBC since SQLite doesn't natively support R2DBC very well
     // or just use `spring-boot-starter-jdbc` and query directly.
     implementation("org.springframework.boot:spring-boot-starter-jdbc")
 
