@@ -18,6 +18,7 @@ import com.reminders.config.AppConfig
 import reactor.util.retry.Retry
 import java.time.Duration
 import org.springframework.web.reactive.function.client.ClientResponse
+import org.slf4j.LoggerFactory
 
 @RestController
 @RequestMapping("/api")
@@ -25,6 +26,8 @@ class ReminderController(
     private val reminderRepository: ReminderRepository,
     private val appConfig: AppConfig
 ) {
+
+    private val logger = LoggerFactory.getLogger(ReminderController::class.java)
 
     private val webClient = WebClient.builder()
         .filter { request, next ->
@@ -57,6 +60,7 @@ class ReminderController(
             username = username,
             reminder_message = request.reminderMessage
         )
+        logger.info("User {} is creating a new reminder", username)
         return reminderRepository.save(reminder)
     }
 
@@ -73,6 +77,7 @@ class ReminderController(
         exchange: ServerWebExchange
     ): ResponseEntity<Void> {
         val username = exchange.username
+        logger.info("User {} is deleting reminder {}", username, id)
         val deletedCount = reminderRepository.deleteByIdAndUsername(id, username)
         return if (deletedCount > 0) {
             ResponseEntity.noContent().build()
@@ -83,6 +88,7 @@ class ReminderController(
 
     @PutMapping("/trigger-reminders")
     suspend fun triggerReminders(): ResponseEntity<Void> {
+        logger.info("Triggering all pending reminders")
         val reminders = reminderRepository.findAll()
         
         for (reminder in reminders) {
@@ -93,9 +99,10 @@ class ReminderController(
                     .retrieve()
                     .awaitBodilessEntity()
                     
+                logger.debug("Successfully triggered reminder {}", reminder.id)
                 reminder.id?.let { reminderRepository.deleteById(it) }
             } catch (e: Exception) {
-                // log error
+                logger.error("Failed to trigger reminder ${reminder.id} after retries", e)
             }
         }
         return ResponseEntity.ok().build()

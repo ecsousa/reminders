@@ -8,13 +8,16 @@ import org.springframework.stereotype.Repository
 import java.sql.ResultSet
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import org.slf4j.LoggerFactory
 
 @Repository
 class ReminderRepository(private val jdbcTemplate: JdbcTemplate) {
 
+    private val logger = LoggerFactory.getLogger(ReminderRepository::class.java)
     private val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
     suspend fun save(reminder: Reminder): Reminder = withContext(Dispatchers.IO) {
+        logger.debug("Saving new reminder for user {}", reminder.username)
         val now = LocalDateTime.now()
         val formattedDate = now.format(formatter)
         
@@ -51,11 +54,13 @@ class ReminderRepository(private val jdbcTemplate: JdbcTemplate) {
     }
 
     suspend fun deleteByIdAndUsername(id: Long, username: String): Int = withContext(Dispatchers.IO) {
+        logger.debug("Deleting reminder {} for user {}", id, username)
         val sql = "DELETE FROM reminders WHERE id = ? AND username = ?"
         jdbcTemplate.update(sql, id, username)
     }
     
     suspend fun deleteById(id: Long): Int = withContext(Dispatchers.IO) {
+        logger.debug("Deleting reminder {} by system", id)
         val sql = "DELETE FROM reminders WHERE id = ?"
         jdbcTemplate.update(sql, id)
     }

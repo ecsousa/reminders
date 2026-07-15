@@ -10,9 +10,11 @@ import org.springframework.http.HttpStatus
 import org.springframework.web.server.ServerWebExchange
 import org.springframework.web.server.WebFilter
 import org.springframework.web.server.WebFilterChain
+import org.slf4j.LoggerFactory
 
 @Configuration
 class SecurityConfig {
+    private val logger = LoggerFactory.getLogger(SecurityConfig::class.java)
 
     @Bean
     @Profile("!dev")
@@ -23,6 +25,7 @@ class SecurityConfig {
             val name = exchange.request.headers.getFirst("X-authentik-name")
 
             if (username.isNullOrBlank() || name.isNullOrBlank()) {
+                logger.warn("Unauthorized request missing X-authentik headers")
                 exchange.response.statusCode = HttpStatus.UNAUTHORIZED
                 return@WebFilter exchange.response.setComplete()
             }
@@ -37,6 +40,7 @@ class SecurityConfig {
     @Profile("dev")
     @Order(1)
     fun devAuthFilter(appConfig: AppConfig): WebFilter {
+        logger.info("Initializing Dev Auth Filter with username: {}", appConfig.dev.username)
         return WebFilter { exchange: ServerWebExchange, chain: WebFilterChain ->
             exchange.username = appConfig.dev.username
             exchange.name = appConfig.dev.name
