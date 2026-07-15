@@ -13,10 +13,14 @@ import kotlinx.coroutines.reactive.awaitFirstOrNull
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.awaitExchange
 import reactor.core.publisher.Mono
+import org.springframework.beans.factory.annotation.Value
 
 @RestController
 @RequestMapping("/api")
-class ReminderController(private val reminderRepository: ReminderRepository) {
+class ReminderController(
+    private val reminderRepository: ReminderRepository,
+    @Value("\${reminders.apprise-url}") private val appriseEndpoint: String
+) {
 
     private val webClient = WebClient.create()
 
@@ -64,7 +68,6 @@ class ReminderController(private val reminderRepository: ReminderRepository) {
     @PutMapping("/trigger-reminders")
     suspend fun triggerReminders(): ResponseEntity<Void> {
         val reminders = reminderRepository.findAll()
-        val appriseEndpoint = System.getenv("APPRISE_ENDPOINT") ?: "http://localhost:8000/notify"
         
         for (reminder in reminders) {
             try {

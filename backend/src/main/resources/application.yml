@@ -14,3 +14,4 @@ server:
 
 reminders:
   db-folder: ${DB_FOLDER:.}
+  apprise-url: ${APPRISE_ENDPOINT:http://localhost:8000/notify}
