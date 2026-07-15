@@ -10,7 +10,6 @@ import org.springframework.http.HttpStatus
 import org.springframework.web.server.ServerWebExchange
 import org.springframework.web.server.WebFilter
 import org.springframework.web.server.WebFilterChain
-import reactor.core.publisher.Mono
 
 @Configuration
 class SecurityConfig {

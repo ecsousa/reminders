@@ -7,15 +7,17 @@ import com.reminders.model.UserInfoResponse
 import com.reminders.repository.ReminderRepository
 import com.reminders.util.name
 import com.reminders.util.username
-import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.server.ServerWebExchange
-import kotlinx.coroutines.reactive.awaitFirstOrNull
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.awaitExchange
+import org.springframework.web.reactive.function.client.awaitBodilessEntity
 import reactor.core.publisher.Mono
 import com.reminders.config.AppConfig
+import reactor.util.retry.Retry
+import java.time.Duration
+import org.springframework.web.reactive.function.client.ClientResponse
 
 @RestController
 @RequestMapping("/api")
@@ -24,7 +26,19 @@ class ReminderController(
     private val appConfig: AppConfig
 ) {
 
-    private val webClient = WebClient.create()
+    private val webClient = WebClient.builder()
+        .filter { request, next ->
+            next.exchange(request)
+                .flatMap { response ->
+                    if (response.statusCode().isError) {
+                        response.createException().flatMap { Mono.error<ClientResponse>(it) }
+                    } else {
+                        Mono.just(response)
+                    }
+                }
+                .retryWhen(Retry.backoff(3, Duration.ofSeconds(1)))
+        }
+        .build()
 
     @GetMapping("/user-info")
     suspend fun getUserInfo(exchange: ServerWebExchange): UserInfoResponse {
@@ -73,34 +87,13 @@ class ReminderController(
         
         for (reminder in reminders) {
             try {
-                var success = false
-                var attempts = 0
-                while (!success && attempts < 3) {
-                    try {
-                        val response = webClient.post()
-                            .uri(appConfig.appriseUrl)
-                            .bodyValue(mapOf("body" to reminder.reminder_message, "title" to "Reminder") as Any)
-                            .exchangeToMono { res -> 
-                                if (res.statusCode().is2xxSuccessful) {
-                                    Mono.just(true)
-                                } else {
-                                    Mono.just(false)
-                                }
-                            }
-                            .awaitFirstOrNull()
-                            
-                        if (response == true) {
-                            success = true
-                            reminder.id?.let { reminderRepository.deleteById(it) }
-                        } else {
-                            attempts++
-                            kotlinx.coroutines.delay(1000L * attempts)
-                        }
-                    } catch (e: Exception) {
-                        attempts++
-                        kotlinx.coroutines.delay(1000L * attempts)
-                    }
-                }
+                webClient.post()
+                    .uri(appConfig.appriseUrl)
+                    .bodyValue(mapOf("body" to reminder.reminder_message, "title" to "Reminder") as Any)
+                    .retrieve()
+                    .awaitBodilessEntity()
+                    
+                reminder.id?.let { reminderRepository.deleteById(it) }
             } catch (e: Exception) {
                 // log error
             }
