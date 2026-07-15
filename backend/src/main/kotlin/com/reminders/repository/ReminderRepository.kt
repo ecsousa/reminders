@@ -19,11 +19,11 @@ class ReminderRepository(private val jdbcTemplate: JdbcTemplate) {
         val formattedDate = now.format(formatter)
         
         val sql = "INSERT INTO reminders (username, creation_time, reminder_message) VALUES (?, ?, ?)"
-        jdbcTemplate.update(sql, reminder.username, formattedDate, reminder.reminderMessage)
+        jdbcTemplate.update(sql, reminder.username, formattedDate, reminder.reminder_message)
         
         val id = jdbcTemplate.queryForObject("SELECT last_insert_rowid()", Long::class.java)!!
         
-        reminder.copy(id = id, creationTime = now)
+        reminder.copy(id = id, created_time = now)
     }
 
     suspend fun findAllByUsername(username: String): List<Reminder> = withContext(Dispatchers.IO) {
@@ -32,8 +32,8 @@ class ReminderRepository(private val jdbcTemplate: JdbcTemplate) {
             Reminder(
                 id = rs.getLong("id"),
                 username = rs.getString("username"),
-                creationTime = LocalDateTime.parse(rs.getString("creation_time"), formatter),
-                reminderMessage = rs.getString("reminder_message")
+                created_time = LocalDateTime.parse(rs.getString("creation_time"), formatter),
+                reminder_message = rs.getString("reminder_message")
             )
         }, username)
     }
@@ -44,8 +44,8 @@ class ReminderRepository(private val jdbcTemplate: JdbcTemplate) {
             Reminder(
                 id = rs.getLong("id"),
                 username = rs.getString("username"),
-                creationTime = LocalDateTime.parse(rs.getString("creation_time"), formatter),
-                reminderMessage = rs.getString("reminder_message")
+                created_time = LocalDateTime.parse(rs.getString("creation_time"), formatter),
+                reminder_message = rs.getString("reminder_message")
             )
         }
     }

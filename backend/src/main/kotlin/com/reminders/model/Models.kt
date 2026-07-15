@@ -1,24 +1,23 @@
 package com.reminders.model
 
-import tools.jackson.annotation.JsonProperty
 import java.time.LocalDateTime
 
 data class Reminder(
-    @JsonProperty("id") val id: Long? = null,
-    @JsonProperty("username") val username: String? = null,
-    @JsonProperty("created_time") val creationTime: LocalDateTime? = null,
-    @JsonProperty("reminder_message") val reminderMessage: String
+    val id: Long? = null,
+    val username: String? = null,
+    val created_time: LocalDateTime? = null,
+    val reminder_message: String
 )
 
 data class ReminderCreateRequest(
-    @JsonProperty("reminderMessage") val reminderMessage: String
+    val reminderMessage: String
 )
 
 data class RemindersResponse(
-    @JsonProperty("reminders") val reminders: List<Reminder>
+    val reminders: List<Reminder>
 )
 
 data class UserInfoResponse(
-    @JsonProperty("username") val username: String,
-    @JsonProperty("name") val name: String
+    val username: String,
+    val name: String
 )

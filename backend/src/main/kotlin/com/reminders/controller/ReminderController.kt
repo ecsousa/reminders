@@ -12,7 +12,7 @@ import org.springframework.web.server.ServerWebExchange
 import kotlinx.coroutines.reactive.awaitFirstOrNull
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.awaitExchange
-import org.springframework.web.reactive.function.client.awaitBodilessEntity
+import reactor.core.publisher.Mono
 
 @RestController
 @RequestMapping("/api")
@@ -35,7 +35,7 @@ class ReminderController(private val reminderRepository: ReminderRepository) {
         val username = exchange.attributes["username"] as String
         val reminder = Reminder(
             username = username,
-            reminderMessage = request.reminderMessage
+            reminder_message = request.reminderMessage
         )
         return reminderRepository.save(reminder)
     }
@@ -74,7 +74,7 @@ class ReminderController(private val reminderRepository: ReminderRepository) {
                     try {
                         val response = webClient.post()
                             .uri(appriseEndpoint)
-                            .bodyValue(mapOf("body" to reminder.reminderMessage, "title" to "Reminder"))
+                            .bodyValue(mapOf("body" to reminder.reminder_message, "title" to "Reminder") as Any)
                             .exchangeToMono { res -> 
                                 if (res.statusCode().is2xxSuccessful) {
                                     Mono.just(true)
