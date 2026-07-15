@@ -9,6 +9,7 @@ import org.springframework.web.server.ServerWebExchange
 import org.springframework.web.server.WebFilter
 import org.springframework.web.server.WebFilterChain
 import reactor.core.publisher.Mono
+import org.springframework.beans.factory.annotation.Value
 
 @Configuration
 class SecurityConfig {
@@ -35,13 +36,13 @@ class SecurityConfig {
     @Bean
     @Profile("dev")
     @Order(1)
-    fun devAuthFilter(): WebFilter {
+    fun devAuthFilter(
+        @Value("\${reminders.dev.username}") devUsername: String,
+        @Value("\${reminders.dev.name}") devName: String
+    ): WebFilter {
         return WebFilter { exchange: ServerWebExchange, chain: WebFilterChain ->
-            val username = System.getenv("DEV_USERNAME") ?: "dev_user"
-            val name = System.getenv("DEV_NAME") ?: "Dev User"
-            
-            exchange.attributes["username"] = username
-            exchange.attributes["name"] = name
+            exchange.attributes["username"] = devUsername
+            exchange.attributes["name"] = devName
             chain.filter(exchange)
         }
     }

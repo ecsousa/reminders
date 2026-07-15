@@ -1,0 +1,4 @@
+reminders:
+  dev:
+    username: ${DEV_USERNAME:dev_user}
+    name: ${DEV_NAME:Dev User}
