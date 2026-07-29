@@ -11,7 +11,6 @@ import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.server.ServerWebExchange
 import org.springframework.web.reactive.function.client.WebClient
-import org.springframework.web.reactive.function.client.awaitExchange
 import org.springframework.web.reactive.function.client.awaitBodilessEntity
 import reactor.core.publisher.Mono
 import com.reminders.config.AppConfig
@@ -19,6 +18,7 @@ import reactor.util.retry.Retry
 import java.time.Duration
 import org.springframework.web.reactive.function.client.ClientResponse
 import org.slf4j.LoggerFactory
+import org.springframework.web.util.UriComponentsBuilder
 
 @RestController
 @RequestMapping("/api")
@@ -87,22 +87,26 @@ class ReminderController(
     }
 
     @PutMapping("/trigger-reminders")
-    suspend fun triggerReminders(): ResponseEntity<Void> {
+    suspend fun triggerReminders(exchange: ServerWebExchange): ResponseEntity<Void> {
         logger.info("Triggering all pending reminders")
         val reminders = reminderRepository.findAll()
         
-        for (reminder in reminders) {
+        for ((id, _, _, reminderMessage) in reminders) {
             try {
                 webClient.post()
-                    .uri(appConfig.appriseUrl)
-                    .bodyValue(mapOf("body" to reminder.reminder_message, "title" to "Reminder") as Any)
+                    .uri(UriComponentsBuilder.fromUriString(appConfig.appriseUrl)
+                        .queryParam("tag", "${appConfig.appriseTagPrefix}-${exchange.username}")
+                        .build()
+                        .toUri()
+                    )
+                    .bodyValue(mapOf("body" to reminderMessage, "title" to "Reminder") as Any)
                     .retrieve()
                     .awaitBodilessEntity()
                     
-                logger.debug("Successfully triggered reminder {}", reminder.id)
-                reminder.id?.let { reminderRepository.deleteById(it) }
+                logger.debug("Successfully triggered reminder {}", id)
+                id?.let { reminderRepository.deleteById(it) }
             } catch (e: Exception) {
-                logger.error("Failed to trigger reminder ${reminder.id} after retries", e)
+                logger.error("Failed to trigger reminder $id after retries", e)
             }
         }
         return ResponseEntity.ok().build()

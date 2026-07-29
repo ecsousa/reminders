@@ -11,6 +11,7 @@ import java.io.File
 class AppConfig {
     var dbFolder: String = "."
     var appriseUrl: String = "http://localhost:8000/notify"
+    var appriseTagPrefix: String = "reminders"
     var dev: Dev = Dev()
 
     class Dev {
