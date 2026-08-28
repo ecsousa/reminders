@@ -1,6 +1,6 @@
 # Reminders
 
-A full-stack web application for creating, managing, and triggering scheduled notifications via Apprise. Built with a Kotlin Spring Boot (WebFlux) backend and a React + Bootstrap frontend.
+A full-stack web application for creating, managing, and triggering scheduled notifications via Apprise. Built with a Rust (Axum) backend and a React + Bootstrap frontend.
 
 ## Features
 
@@ -11,28 +11,29 @@ A full-stack web application for creating, managing, and triggering scheduled no
 
 ## Project Structure
 
-- `backend/`: Kotlin Spring Boot application (WebFlux) utilizing coroutines.
+- `backend/`: Rust application built with `axum`, `tokio`, and `rusqlite`.
 - `frontend/`: React + TypeScript SPA packed with Webpack and styled with Bootstrap.
 
 ## Configuration
 
-The application can be configured via environment variables (or overridden via `application.yml` and `application-dev.yml`):
+The application can be configured via environment variables:
 
+- `APP_PROFILE`: Set to `dev` to bypass Authentik headers and use dummy credentials (default: `prod`).
 - `DB_FOLDER`: Directory where the SQLite database (`reminders.db3`) will be stored (default: `.`).
 - `APPRISE_ENDPOINT`: The URL of your Apprise instance to trigger notifications (default: `http://localhost:8000/notify`).
 - `DEV_USERNAME`: Override the default username in the `dev` profile (default: `dev_user`).
 - `DEV_NAME`: Override the default name in the `dev` profile (default: `Dev User`).
+- `PORT`: The port the backend server listens on (default: `8080`).
 
 ## Local Development
 
 ### Backend
 
 1. Navigate to `backend/`.
-2. Run using Gradle:
+2. Run using Cargo, specifying the `dev` profile to inject dummy authentication credentials for local testing:
    ```bash
-   ./gradlew bootRun --args='--spring.profiles.active=dev'
+   APP_PROFILE=dev cargo run
    ```
-   *Note: Using the `dev` profile injects dummy authentication credentials for local testing.*
 
 ### Frontend
 
@@ -48,12 +49,11 @@ The application can be configured via environment variables (or overridden via `
 
 ## Building and Running Locally
 
-You can build the complete application (frontend assets bundled inside the backend JAR).
+You can build the complete application (frontend assets bundled to be served by the backend binary).
 
 ### Prerequisites
 - Node.js (18+)
-- Java 25+
-- Gradle
+- Rust (1.80+)
 
 ### Build Steps
 
@@ -65,25 +65,26 @@ You can build the complete application (frontend assets bundled inside the backe
    cd ..
    ```
 
-2. **Copy Frontend Assets to Backend:**
+2. **Copy Frontend Assets to Backend `public/` Directory:**
    ```bash
-   mkdir -p backend/src/main/resources/public
-   cp -r frontend/dist/* backend/src/main/resources/public/
+   mkdir -p public
+   cp -r frontend/dist/* public/
    ```
+   *Note: When running the backend binary, it looks for a `public/` directory in its current working directory to serve the frontend.*
 
-3. **Build the Backend JAR:**
+3. **Build the Backend Binary:**
    ```bash
    cd backend
-   ./gradlew build -x test
+   cargo build --release
    cd ..
    ```
 
-### Running the JAR
+### Running the Application
 
-Run the assembled JAR using the `java -jar` command, specifying the required environment variables:
+Run the compiled binary from the project root (so it can find the `public/` directory), specifying the required environment variables:
 
 ```bash
-DB_FOLDER=./data APPRISE_ENDPOINT=http://localhost:8000/notify java -jar backend/build/libs/reminders-0.1.jar
+DB_FOLDER=./data APPRISE_ENDPOINT=http://localhost:8000/notify ./backend/target/release/reminders-backend
 ```
 
 The application will be accessible at `http://localhost:8080`.

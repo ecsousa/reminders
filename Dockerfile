@@ -7,25 +7,27 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Build Backend
-FROM eclipse-temurin:25-jdk AS backend-builder
+FROM rust:1.80-slim-bookworm AS backend-builder
 WORKDIR /app
+
+# Install build dependencies for SQLite
+RUN apt-get update && apt-get install -y libsqlite3-dev pkg-config
 
 COPY backend/ ./
-# Copy frontend dist to backend resources
-RUN mkdir -p src/main/resources/public
-COPY --from=frontend-builder /app/dist/* src/main/resources/public/
-RUN chmod +x gradlew
-RUN ./gradlew copyAgent
-RUN ./gradlew build -x test
+RUN cargo build --release
 
 # Stage 3: Final Image
-FROM eclipse-temurin:25-jre
+FROM debian:bookworm-slim
 WORKDIR /app
-COPY --from=backend-builder /app/build/agent/*.jar /app/reactor-tools.jar
-COPY --from=backend-builder /app/build/libs/reminders-0.1.jar app.jar
+
+# Install runtime dependencies for SQLite
+RUN apt-get update && apt-get install -y libsqlite3-0 ca-certificates && rm -rf /var/lib/apt/lists/*
+
+COPY --from=backend-builder /app/target/release/reminders-backend /app/reminders-backend
+COPY --from=frontend-builder /app/dist/ /app/public/
 
 ENV PORT=8080
 ENV DB_FOLDER=/data
 
 EXPOSE 8080
-ENTRYPOINT ["java", "-javaagent:/app/reactor-tools.jar", "-jar", "app.jar"]
+ENTRYPOINT ["/app/reminders-backend"]

@@ -1,0 +1,19 @@
+FROM debian:bookworm-slim
+WORKDIR /app
+ARG TARGETARCH
+
+# Install runtime dependencies for SQLite and certs
+RUN apt-get update && apt-get install -y libsqlite3-0 ca-certificates && rm -rf /var/lib/apt/lists/*
+
+# Copy pre-compiled frontend static files
+COPY public /app/public
+
+# Copy pre-compiled binary based on architecture (amd64 or arm64)
+COPY artifacts/backend-${TARGETARCH}/reminders-backend /app/reminders-backend
+RUN chmod +x /app/reminders-backend
+
+ENV PORT=8080
+ENV DB_FOLDER=/data
+
+EXPOSE 8080
+ENTRYPOINT ["/app/reminders-backend"]
