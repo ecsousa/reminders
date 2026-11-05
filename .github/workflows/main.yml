@@ -56,7 +56,7 @@ jobs:
             target: x86_64-apple-darwin
             arch: amd64
             use_cross: false
-          - os: macos-14
+          - os: macos-latest
             target: aarch64-apple-darwin
             arch: arm64
             use_cross: false
