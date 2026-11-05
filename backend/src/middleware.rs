@@ -47,3 +47,38 @@ pub async fn auth_middleware(mut req: Request, next: Next) -> Result<Response, S
     tracing::warn!("Unauthorized request missing X-authentik headers");
     Err(StatusCode::UNAUTHORIZED)
 }
+
+pub async fn request_logger(req: Request, next: Next) -> Response {
+    let method = req.method().clone();
+    let uri = req.uri().clone();
+    let path = uri.path();
+    let is_oauth_or_mcp = path.starts_with("/mcp")
+        || path.starts_with("/.well-known")
+        || path.starts_with("/oauth")
+        || path.starts_with("/authorize")
+        || path.starts_with("/token")
+        || path.starts_with("/register");
+
+    if is_oauth_or_mcp {
+        tracing::info!(
+            "Incoming request: {} {} (headers: {:?})",
+            method,
+            uri,
+            req.headers()
+        );
+    }
+
+    let resp = next.run(req).await;
+
+    if is_oauth_or_mcp {
+        tracing::info!(
+            "Outgoing response for {} {}: status={} (headers: {:?})",
+            method,
+            uri,
+            resp.status(),
+            resp.headers()
+        );
+    }
+
+    resp
+}

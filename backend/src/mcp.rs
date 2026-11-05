@@ -262,8 +262,12 @@ fn authenticate_mcp_request(headers: &HeaderMap, keys: &HashMap<String, String>)
 fn unauthorized_mcp_response(state: &AppState, headers: &HeaderMap) -> Response {
     let base_url = determine_base_url(state, headers);
     let www_auth = format!(
-        "Bearer realm=\"mcp\", resource_metadata=\"{}/.well-known/oauth-protected-resource\"",
+        "Bearer resource_metadata=\"{}/mcp/.well-known/oauth-protected-resource\"",
         base_url
+    );
+    tracing::info!(
+        "MCP unauthorized request -> returning 401 with WWW-Authenticate: {}",
+        www_auth
     );
     (
         StatusCode::UNAUTHORIZED,
@@ -278,17 +282,30 @@ fn unauthorized_mcp_response(state: &AppState, headers: &HeaderMap) -> Response 
 
 pub async fn oauth_protected_resource_metadata(
     State(state): State<Arc<AppState>>,
+    OriginalUri(uri): OriginalUri,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let base_url = determine_base_url(&state, &headers);
-    Json(json!({
+    let auth_server = if uri.path().starts_with("/mcp/") || uri.path().ends_with("/mcp") {
+        format!("{}/mcp", base_url)
+    } else {
+        base_url.clone()
+    };
+    let body = json!({
         "resource": format!("{}/mcp", base_url),
         "authorization_servers": [
-            base_url
+            auth_server
         ],
         "bearer_methods_supported": ["header"],
         "scopes_supported": ["mcp"]
-    }))
+    });
+    tracing::info!(
+        "OAuth protected resource metadata requested at '{}' (headers: {:?}) -> returning: {}",
+        uri,
+        headers,
+        body
+    );
+    Json(body)
 }
 
 pub async fn oauth_authorization_server_metadata(
@@ -302,7 +319,7 @@ pub async fn oauth_authorization_server_metadata(
     } else {
         base_url.clone()
     };
-    Json(json!({
+    let body = json!({
         "issuer": issuer,
         "authorization_endpoint": format!("{}/mcp/oauth/authorize", base_url),
         "token_endpoint": format!("{}/mcp/oauth/token", base_url),
@@ -313,10 +330,29 @@ pub async fn oauth_authorization_server_metadata(
         "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic", "none"],
         "code_challenge_methods_supported": ["S256", "plain"],
         "scopes_supported": ["mcp"]
-    }))
+    });
+    tracing::info!(
+        "OAuth authorization server metadata requested at '{}' (headers: {:?}) -> returning: {}",
+        uri,
+        headers,
+        body
+    );
+    Json(body)
 }
 
-pub async fn oauth_register(State(state): State<Arc<AppState>>, body: Bytes) -> impl IntoResponse {
+pub async fn oauth_register(
+    State(state): State<Arc<AppState>>,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> impl IntoResponse {
+    let body_str = String::from_utf8_lossy(&body);
+    tracing::info!(
+        "OAuth register requested at '{}' (headers: {:?}, body: {})",
+        uri,
+        headers,
+        body_str
+    );
     let req_json: Value = serde_json::from_slice(&body).unwrap_or_else(|_| json!({}));
     let file_cfg = state.config.get_file_config();
 
@@ -336,23 +372,32 @@ pub async fn oauth_register(State(state): State<Arc<AppState>>, body: Bytes) -> 
         .cloned()
         .unwrap_or_else(|| "mcp-client".to_string());
 
-    (
-        StatusCode::CREATED,
-        Json(json!({
-            "client_id": client_id,
-            "redirect_uris": redirect_uris,
-            "grant_types": ["authorization_code", "refresh_token", "client_credentials"],
-            "response_types": ["code"],
-            "token_endpoint_auth_method": "client_secret_post"
-        })),
-    )
+    let resp_body = json!({
+        "client_id": client_id,
+        "redirect_uris": redirect_uris,
+        "grant_types": ["authorization_code", "refresh_token", "client_credentials"],
+        "response_types": ["code"],
+        "token_endpoint_auth_method": "client_secret_post"
+    });
+    tracing::info!("OAuth register returning 201: {}", resp_body);
+    (StatusCode::CREATED, Json(resp_body))
 }
 
 pub async fn oauth_authorize(
     State(state): State<Arc<AppState>>,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
     Query(query_params): Query<AuthorizeParams>,
     body: Bytes,
 ) -> Response {
+    let body_str = String::from_utf8_lossy(&body);
+    tracing::info!(
+        "OAuth authorize requested at '{}' (headers: {:?}, query: {:?}, body: '{}')",
+        uri,
+        headers,
+        query_params,
+        body_str
+    );
     let form_params: AuthorizeParams = if !body.is_empty() {
         url::form_urlencoded::parse(&body).fold(AuthorizeParams::default(), |mut acc, (k, v)| {
             match k.as_ref() {
@@ -447,6 +492,11 @@ pub async fn oauth_authorize(
                 pairs.append_pair("state", st);
             }
         }
+        tracing::info!(
+            "OAuth authorize succeeded for client_id '{}', redirecting to '{}'",
+            client_id,
+            target_url
+        );
         Redirect::to(target_url.as_str()).into_response()
     } else {
         let sep = if redirect_uri.contains('?') { '&' } else { '?' };
@@ -454,15 +504,29 @@ pub async fn oauth_authorize(
         if let Some(st) = &state_param {
             location.push_str(&format!("&state={}", st));
         }
+        tracing::info!(
+            "OAuth authorize succeeded for client_id '{}', redirecting to '{}'",
+            client_id,
+            location
+        );
         Redirect::to(&location).into_response()
     }
 }
 
 pub async fn oauth_token(
     State(state): State<Arc<AppState>>,
+    OriginalUri(uri): OriginalUri,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    let body_str = String::from_utf8_lossy(&body);
+    tracing::info!(
+        "OAuth token requested at '{}' (has_auth_header: {}, content_type: {:?}, body_len: {})",
+        uri,
+        headers.contains_key(header::AUTHORIZATION),
+        headers.get(header::CONTENT_TYPE),
+        body_str.len()
+    );
     let params: TokenRequestParams = if let Ok(json_params) = serde_json::from_slice(&body) {
         json_params
     } else {
@@ -636,6 +700,12 @@ pub async fn oauth_token(
     let access_token = create_signed_token(&authenticated_user, secret, "access");
     let refresh_token = create_signed_token(&authenticated_user, secret, "refresh");
 
+    tracing::info!(
+        "OAuth token issued successfully for user '{}' (grant_type: '{}')",
+        authenticated_user,
+        grant_type
+    );
+
     (
         StatusCode::OK,
         [(header::CACHE_CONTROL, "no-store")],
@@ -651,6 +721,12 @@ pub async fn oauth_token(
 }
 
 fn oauth_error_response(status: StatusCode, error: &str, description: &str) -> Response {
+    tracing::warn!(
+        "OAuth token error response (status: {}): error='{}', description='{}'",
+        status,
+        error,
+        description
+    );
     (
         status,
         [(header::CACHE_CONTROL, "no-store")],
@@ -662,15 +738,29 @@ fn oauth_error_response(status: StatusCode, error: &str, description: &str) -> R
         .into_response()
 }
 
-pub async fn handle_mcp_get(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+pub async fn handle_mcp_get(
+    State(state): State<Arc<AppState>>,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+) -> Response {
+    tracing::info!("MCP GET request at '{}' (headers: {:?})", uri, headers);
     let keys = state.config.get_mcp_keys();
-    if authenticate_mcp_request(&headers, &keys).is_none() {
+    let Some(username) = authenticate_mcp_request(&headers, &keys) else {
         return unauthorized_mcp_response(&state, &headers);
-    }
+    };
+    tracing::info!(
+        "MCP GET authenticated for user '{}', returning 405 Method Not Allowed",
+        username
+    );
     StatusCode::METHOD_NOT_ALLOWED.into_response()
 }
 
-pub async fn handle_mcp_delete(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+pub async fn handle_mcp_delete(
+    State(state): State<Arc<AppState>>,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+) -> Response {
+    tracing::info!("MCP DELETE request at '{}' (headers: {:?})", uri, headers);
     let keys = state.config.get_mcp_keys();
     if authenticate_mcp_request(&headers, &keys).is_none() {
         return unauthorized_mcp_response(&state, &headers);
@@ -680,13 +770,22 @@ pub async fn handle_mcp_delete(State(state): State<Arc<AppState>>, headers: Head
 
 pub async fn handle_mcp_post(
     State(state): State<Arc<AppState>>,
+    OriginalUri(uri): OriginalUri,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    let body_str = String::from_utf8_lossy(&body);
+    tracing::info!(
+        "MCP POST request at '{}' (headers: {:?}, body: {})",
+        uri,
+        headers,
+        body_str
+    );
     let keys = state.config.get_mcp_keys();
     let Some(username) = authenticate_mcp_request(&headers, &keys) else {
         return unauthorized_mcp_response(&state, &headers);
     };
+    tracing::info!("MCP POST authenticated as user '{}'", username);
 
     let payload: Value = match serde_json::from_slice(&body) {
         Ok(val) => val,
@@ -1016,6 +1115,8 @@ mod tests {
 
         let auth_resp = oauth_authorize(
             State(state.clone()),
+            OriginalUri("/mcp/oauth/authorize".parse().unwrap()),
+            HeaderMap::new(),
             Query(AuthorizeParams {
                 response_type: Some("code".to_string()),
                 client_id: Some("dudu".to_string()),
@@ -1045,6 +1146,8 @@ mod tests {
         // Reject mismatched redirect_uri
         let bad_auth_resp = oauth_authorize(
             State(state.clone()),
+            OriginalUri("/mcp/oauth/authorize".parse().unwrap()),
+            HeaderMap::new(),
             Query(AuthorizeParams {
                 response_type: Some("code".to_string()),
                 client_id: Some("dudu".to_string()),
@@ -1071,6 +1174,7 @@ mod tests {
 
         let token_resp = oauth_token(
             State(state.clone()),
+            OriginalUri("/mcp/oauth/token".parse().unwrap()),
             HeaderMap::new(),
             Bytes::from(form_body),
         )
@@ -1100,6 +1204,7 @@ mod tests {
         });
         let resp = handle_mcp_post(
             State(state.clone()),
+            OriginalUri("/mcp".parse().unwrap()),
             mcp_headers.clone(),
             Bytes::from(serde_json::to_vec(&list_tools_req).unwrap()),
         )
@@ -1126,6 +1231,7 @@ mod tests {
         });
         let create_resp = handle_mcp_post(
             State(state.clone()),
+            OriginalUri("/mcp".parse().unwrap()),
             mcp_headers.clone(),
             Bytes::from(serde_json::to_vec(&create_req).unwrap()),
         )
@@ -1149,6 +1255,7 @@ mod tests {
         });
         let list_resp = handle_mcp_post(
             State(state.clone()),
+            OriginalUri("/mcp".parse().unwrap()),
             mcp_headers,
             Bytes::from(serde_json::to_vec(&list_req).unwrap()),
         )

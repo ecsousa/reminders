@@ -100,6 +100,7 @@ pub fn build_app(app_state: Arc<AppState>) -> Router {
         .merge(mcp_routes)
         .fallback_service(static_dir)
         .with_state(app_state)
+        .layer(axum_middleware::from_fn(middleware::request_logger))
         .layer(TraceLayer::new_for_http())
 }
 
