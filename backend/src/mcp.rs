@@ -1,6 +1,6 @@
 use axum::{
     body::Bytes,
-    extract::{Query, State},
+    extract::{OriginalUri, Query, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Redirect, Response},
     Json,
@@ -58,27 +58,33 @@ struct TokenPayload {
     ts: i64,
 }
 
-fn determine_base_url(headers: &HeaderMap, default_port: u16) -> String {
+fn determine_base_url(state: &AppState, headers: &HeaderMap) -> String {
+    if let Some(configured_base) = state.config.get_file_config().base_url {
+        let trimmed = configured_base.trim().trim_end_matches('/');
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+
     let host = headers
         .get("x-forwarded-host")
         .or_else(|| headers.get(header::HOST))
         .and_then(|h| h.to_str().ok())
         .and_then(|h| h.split(',').next())
         .map(|h| h.trim().to_string())
-        .unwrap_or_else(|| format!("localhost:{}", default_port));
+        .unwrap_or_else(|| format!("localhost:{}", state.config.port));
 
-    let proto = headers
-        .get("x-forwarded-proto")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|h| h.split(',').next())
-        .map(|h| h.trim().to_string())
-        .unwrap_or_else(|| {
-            if host.starts_with("localhost") || host.starts_with("127.0.0.1") {
-                "http".to_string()
-            } else {
-                "https".to_string()
-            }
-        });
+    let is_local = host.starts_with("localhost") || host.starts_with("127.0.0.1");
+    let proto = if is_local {
+        headers
+            .get("x-forwarded-proto")
+            .and_then(|h| h.to_str().ok())
+            .and_then(|h| h.split(',').next())
+            .map(|h| h.trim().to_string())
+            .unwrap_or_else(|| "http".to_string())
+    } else {
+        "https".to_string()
+    };
 
     format!("{}://{}", proto, host)
 }
@@ -253,10 +259,10 @@ fn authenticate_mcp_request(headers: &HeaderMap, keys: &HashMap<String, String>)
     None
 }
 
-fn unauthorized_mcp_response(headers: &HeaderMap, default_port: u16) -> Response {
-    let base_url = determine_base_url(headers, default_port);
+fn unauthorized_mcp_response(state: &AppState, headers: &HeaderMap) -> Response {
+    let base_url = determine_base_url(state, headers);
     let www_auth = format!(
-        "Bearer resource_metadata=\"{}/.well-known/oauth-protected-resource\"",
+        "Bearer realm=\"mcp\", resource_metadata=\"{}/.well-known/oauth-protected-resource\"",
         base_url
     );
     (
@@ -274,7 +280,7 @@ pub async fn oauth_protected_resource_metadata(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let base_url = determine_base_url(&headers, state.config.port);
+    let base_url = determine_base_url(&state, &headers);
     Json(json!({
         "resource": format!("{}/mcp", base_url),
         "authorization_servers": [
@@ -287,19 +293,59 @@ pub async fn oauth_protected_resource_metadata(
 
 pub async fn oauth_authorization_server_metadata(
     State(state): State<Arc<AppState>>,
+    OriginalUri(uri): OriginalUri,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let base_url = determine_base_url(&headers, state.config.port);
+    let base_url = determine_base_url(&state, &headers);
+    let issuer = if uri.path().ends_with("/mcp") || uri.path().starts_with("/mcp/") {
+        format!("{}/mcp", base_url)
+    } else {
+        base_url.clone()
+    };
     Json(json!({
-        "issuer": base_url,
+        "issuer": issuer,
         "authorization_endpoint": format!("{}/mcp/oauth/authorize", base_url),
         "token_endpoint": format!("{}/mcp/oauth/token", base_url),
+        "registration_endpoint": format!("{}/mcp/oauth/register", base_url),
         "response_types_supported": ["code"],
-        "grant_types_supported": ["authorization_code", "client_credentials", "refresh_token"],
-        "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
+        "response_modes_supported": ["query"],
+        "grant_types_supported": ["authorization_code", "refresh_token", "client_credentials"],
+        "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic", "none"],
         "code_challenge_methods_supported": ["S256", "plain"],
         "scopes_supported": ["mcp"]
     }))
+}
+
+pub async fn oauth_register(State(state): State<Arc<AppState>>, body: Bytes) -> impl IntoResponse {
+    let req_json: Value = serde_json::from_slice(&body).unwrap_or_else(|_| json!({}));
+    let file_cfg = state.config.get_file_config();
+
+    let redirect_uris = if let Some(arr) = req_json.get("redirect_uris").and_then(|v| v.as_array())
+    {
+        arr.clone()
+    } else if let Some(ref cfg_url) = file_cfg.redirect_url {
+        vec![Value::String(cfg_url.clone())]
+    } else {
+        vec![]
+    };
+
+    let client_id = file_cfg
+        .mcp_keys
+        .keys()
+        .next()
+        .cloned()
+        .unwrap_or_else(|| "mcp-client".to_string());
+
+    (
+        StatusCode::CREATED,
+        Json(json!({
+            "client_id": client_id,
+            "redirect_uris": redirect_uris,
+            "grant_types": ["authorization_code", "refresh_token", "client_credentials"],
+            "response_types": ["code"],
+            "token_endpoint_auth_method": "client_secret_post"
+        })),
+    )
 }
 
 pub async fn oauth_authorize(
@@ -325,14 +371,38 @@ pub async fn oauth_authorize(
         AuthorizeParams::default()
     };
 
+    let file_cfg = state.config.get_file_config();
+
     let client_id = query_params
         .client_id
         .or(form_params.client_id)
         .unwrap_or_default();
-    let redirect_uri = query_params
-        .redirect_uri
-        .or(form_params.redirect_uri)
-        .unwrap_or_default();
+    let requested_redirect_uri = query_params.redirect_uri.or(form_params.redirect_uri);
+
+    let redirect_uri = match (requested_redirect_uri, file_cfg.redirect_url.as_deref()) {
+        (Some(req_uri), Some(cfg_uri)) if !req_uri.is_empty() => {
+            if req_uri != cfg_uri {
+                tracing::warn!(
+                    "OAuth authorize rejected redirect_uri '{}' (expected '{}')",
+                    req_uri,
+                    cfg_uri
+                );
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": "invalid_request",
+                        "error_description": "redirect_uri does not match configured redirect_url"
+                    })),
+                )
+                    .into_response();
+            }
+            req_uri
+        }
+        (Some(req_uri), None) if !req_uri.is_empty() => req_uri,
+        (_, Some(cfg_uri)) => cfg_uri.to_string(),
+        _ => String::new(),
+    };
+
     let state_param = query_params.state.or(form_params.state);
     let code_challenge = query_params.code_challenge.or(form_params.code_challenge);
     let code_challenge_method = query_params
@@ -350,8 +420,7 @@ pub async fn oauth_authorize(
             .into_response();
     }
 
-    let keys = state.config.get_mcp_keys();
-    let Some(secret) = keys.get(&client_id) else {
+    let Some(secret) = file_cfg.mcp_keys.get(&client_id) else {
         tracing::warn!("OAuth authorize rejected unknown client_id: {}", client_id);
         return (
             StatusCode::UNAUTHORIZED,
@@ -425,7 +494,26 @@ pub async fn oauth_token(
     let grant_type = params
         .grant_type
         .unwrap_or_else(|| "authorization_code".to_string());
-    let keys = state.config.get_mcp_keys();
+    let file_cfg = state.config.get_file_config();
+    let keys = &file_cfg.mcp_keys;
+
+    if let (Some(req_uri), Some(cfg_uri)) = (
+        params.redirect_uri.as_deref(),
+        file_cfg.redirect_url.as_deref(),
+    ) {
+        if !req_uri.is_empty() && req_uri != cfg_uri {
+            tracing::warn!(
+                "OAuth token rejected redirect_uri '{}' (expected '{}')",
+                req_uri,
+                cfg_uri
+            );
+            return oauth_error_response(
+                StatusCode::BAD_REQUEST,
+                "invalid_grant",
+                "redirect_uri does not match configured redirect_url",
+            );
+        }
+    }
 
     let authenticated_user = match grant_type.as_str() {
         "authorization_code" => {
@@ -436,7 +524,7 @@ pub async fn oauth_token(
                     "Client credentials required",
                 );
             };
-            let Some(verified_user) = verify_client_credentials(cid, csec, &keys) else {
+            let Some(verified_user) = verify_client_credentials(cid, csec, keys) else {
                 tracing::warn!(
                     "OAuth token rejected invalid credentials for client_id: {}",
                     cid
@@ -455,7 +543,7 @@ pub async fn oauth_token(
                 );
             };
             let Some((code_user, code_challenge, code_challenge_method)) =
-                verify_auth_code(code, &keys)
+                verify_auth_code(code, keys)
             else {
                 return oauth_error_response(
                     StatusCode::BAD_REQUEST,
@@ -490,7 +578,7 @@ pub async fn oauth_token(
                     "Client credentials required",
                 );
             };
-            let Some(verified_user) = verify_client_credentials(cid, csec, &keys) else {
+            let Some(verified_user) = verify_client_credentials(cid, csec, keys) else {
                 return oauth_error_response(
                     StatusCode::UNAUTHORIZED,
                     "invalid_client",
@@ -507,7 +595,7 @@ pub async fn oauth_token(
                     "Missing refresh_token",
                 );
             };
-            let Some(token_user) = verify_signed_token(rt, "refresh", &keys) else {
+            let Some(token_user) = verify_signed_token(rt, "refresh", keys) else {
                 return oauth_error_response(
                     StatusCode::BAD_REQUEST,
                     "invalid_grant",
@@ -515,7 +603,7 @@ pub async fn oauth_token(
                 );
             };
             if let (Some(cid), Some(csec)) = (client_id.as_deref(), client_secret.as_deref()) {
-                let Some(verified_user) = verify_client_credentials(cid, csec, &keys) else {
+                let Some(verified_user) = verify_client_credentials(cid, csec, keys) else {
                     return oauth_error_response(
                         StatusCode::UNAUTHORIZED,
                         "invalid_client",
@@ -577,7 +665,7 @@ fn oauth_error_response(status: StatusCode, error: &str, description: &str) -> R
 pub async fn handle_mcp_get(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
     let keys = state.config.get_mcp_keys();
     if authenticate_mcp_request(&headers, &keys).is_none() {
-        return unauthorized_mcp_response(&headers, state.config.port);
+        return unauthorized_mcp_response(&state, &headers);
     }
     StatusCode::METHOD_NOT_ALLOWED.into_response()
 }
@@ -585,7 +673,7 @@ pub async fn handle_mcp_get(State(state): State<Arc<AppState>>, headers: HeaderM
 pub async fn handle_mcp_delete(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
     let keys = state.config.get_mcp_keys();
     if authenticate_mcp_request(&headers, &keys).is_none() {
-        return unauthorized_mcp_response(&headers, state.config.port);
+        return unauthorized_mcp_response(&state, &headers);
     }
     StatusCode::OK.into_response()
 }
@@ -597,7 +685,7 @@ pub async fn handle_mcp_post(
 ) -> Response {
     let keys = state.config.get_mcp_keys();
     let Some(username) = authenticate_mcp_request(&headers, &keys) else {
-        return unauthorized_mcp_response(&headers, state.config.port);
+        return unauthorized_mcp_response(&state, &headers);
     };
 
     let payload: Value = match serde_json::from_slice(&body) {
@@ -904,6 +992,8 @@ mod tests {
             port: 8080,
             profile: "prod".to_string(),
             config_file: "/nonexistent/config.yaml".to_string(),
+            base_url: Some("https://reminders.example.com".to_string()),
+            redirect_url: Some("https://gemini.google.com/callback".to_string()),
             mcp_keys,
         };
 
@@ -919,7 +1009,7 @@ mod tests {
         let state = setup_test_state().await;
         let keys = state.config.get_mcp_keys();
 
-        // 1. Test PKCE S256 challenge & code generation
+        // 1. Test PKCE S256 challenge & code generation (also test fallback to configured redirect_url)
         let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
         let digest = digest::digest(&digest::SHA256, verifier.as_bytes());
         let challenge = URL_SAFE_NO_PAD.encode(digest.as_ref());
@@ -929,9 +1019,9 @@ mod tests {
             Query(AuthorizeParams {
                 response_type: Some("code".to_string()),
                 client_id: Some("dudu".to_string()),
-                redirect_uri: Some("https://gemini.google.com/callback".to_string()),
+                redirect_uri: None,
                 state: Some("xyz123".to_string()),
-                code_challenge: Some(challenge),
+                code_challenge: Some(challenge.clone()),
                 code_challenge_method: Some("S256".to_string()),
                 scope: Some("mcp".to_string()),
             }),
@@ -946,10 +1036,28 @@ mod tests {
             .unwrap()
             .to_str()
             .unwrap();
+        assert!(location.starts_with("https://gemini.google.com/callback?"));
         let redirected_url = Url::parse(location).unwrap();
         let query_map: HashMap<_, _> = redirected_url.query_pairs().into_owned().collect();
         assert_eq!(query_map.get("state").map(String::as_str), Some("xyz123"));
         let code = query_map.get("code").unwrap().clone();
+
+        // Reject mismatched redirect_uri
+        let bad_auth_resp = oauth_authorize(
+            State(state.clone()),
+            Query(AuthorizeParams {
+                response_type: Some("code".to_string()),
+                client_id: Some("dudu".to_string()),
+                redirect_uri: Some("https://evil.example.com/callback".to_string()),
+                state: Some("xyz123".to_string()),
+                code_challenge: Some(challenge),
+                code_challenge_method: Some("S256".to_string()),
+                scope: Some("mcp".to_string()),
+            }),
+            Bytes::new(),
+        )
+        .await;
+        assert_eq!(bad_auth_resp.status(), StatusCode::BAD_REQUEST);
 
         // 2. Exchange authorization code for access_token
         let form_body = url::form_urlencoded::Serializer::new(String::new())
@@ -957,6 +1065,7 @@ mod tests {
             .append_pair("code", &code)
             .append_pair("client_id", "dudu")
             .append_pair("client_secret", "someSuperSecretKey")
+            .append_pair("redirect_uri", "https://gemini.google.com/callback")
             .append_pair("code_verifier", verifier)
             .finish();
 

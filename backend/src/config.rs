@@ -3,6 +3,13 @@ use std::env;
 use std::fs;
 use std::path::Path;
 
+#[derive(Clone, Debug, Default)]
+pub struct FileConfig {
+    pub base_url: Option<String>,
+    pub redirect_url: Option<String>,
+    pub mcp_keys: HashMap<String, String>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub db_folder: String,
@@ -13,6 +20,8 @@ pub struct Config {
     pub port: u16,
     pub profile: String,
     pub config_file: String,
+    pub base_url: Option<String>,
+    pub redirect_url: Option<String>,
     pub mcp_keys: HashMap<String, String>,
 }
 
@@ -33,7 +42,7 @@ impl Config {
         let config_file =
             env::var("CONFIG_FILE").unwrap_or_else(|_| "/data/config.yaml".to_string());
 
-        let mcp_keys = load_mcp_keys_from_file(&config_file);
+        let file_cfg = load_config_from_file(&config_file);
 
         Config {
             db_folder,
@@ -44,37 +53,57 @@ impl Config {
             port,
             profile,
             config_file,
-            mcp_keys,
+            base_url: file_cfg.base_url,
+            redirect_url: file_cfg.redirect_url,
+            mcp_keys: file_cfg.mcp_keys,
+        }
+    }
+
+    pub fn get_file_config(&self) -> FileConfig {
+        if Path::new(&self.config_file).exists() {
+            let loaded = load_config_from_file(&self.config_file);
+            if !loaded.mcp_keys.is_empty()
+                || loaded.redirect_url.is_some()
+                || loaded.base_url.is_some()
+                || self.mcp_keys.is_empty()
+            {
+                return loaded;
+            }
+        }
+        FileConfig {
+            base_url: self.base_url.clone(),
+            redirect_url: self.redirect_url.clone(),
+            mcp_keys: self.mcp_keys.clone(),
         }
     }
 
     pub fn get_mcp_keys(&self) -> HashMap<String, String> {
-        if Path::new(&self.config_file).exists() {
-            let loaded = load_mcp_keys_from_file(&self.config_file);
-            if !loaded.is_empty() || self.mcp_keys.is_empty() {
-                return loaded;
-            }
-        }
-        self.mcp_keys.clone()
+        self.get_file_config().mcp_keys
     }
 }
 
-pub fn load_mcp_keys_from_file(path: &str) -> HashMap<String, String> {
+pub fn load_config_from_file(path: &str) -> FileConfig {
     match fs::read_to_string(path) {
         Ok(content) => {
-            let keys = parse_mcp_keys(&content);
-            tracing::debug!("Loaded {} MCP keys from {}", keys.len(), path);
-            keys
+            let cfg = parse_config_yaml(&content);
+            tracing::debug!(
+                "Loaded {} MCP keys (base_url: {:?}, redirect_url: {:?}) from {}",
+                cfg.mcp_keys.len(),
+                cfg.base_url,
+                cfg.redirect_url,
+                path
+            );
+            cfg
         }
         Err(e) => {
             tracing::debug!("Could not read config file at {}: {}", path, e);
-            HashMap::new()
+            FileConfig::default()
         }
     }
 }
 
-pub fn parse_mcp_keys(yaml_content: &str) -> HashMap<String, String> {
-    let mut keys = HashMap::new();
+pub fn parse_config_yaml(yaml_content: &str) -> FileConfig {
+    let mut cfg = FileConfig::default();
     let mut in_mcp_keys = false;
 
     for raw_line in yaml_content.lines() {
@@ -98,7 +127,27 @@ pub fn parse_mcp_keys(yaml_content: &str) -> HashMap<String, String> {
                 in_mcp_keys = true;
                 let rest = rest.trim();
                 if !rest.is_empty() && rest != "[]" && rest != "{}" {
-                    parse_key_entry(rest, &mut keys);
+                    parse_key_entry(rest, &mut cfg.mcp_keys);
+                }
+            } else if let Some(rest) = trimmed
+                .strip_prefix("base_url:")
+                .or_else(|| trimmed.strip_prefix("base-url:"))
+            {
+                in_mcp_keys = false;
+                let url_val = strip_quotes(rest).trim().trim_end_matches('/');
+                if !url_val.is_empty() {
+                    cfg.base_url = Some(url_val.to_string());
+                }
+            } else if let Some(rest) = trimmed
+                .strip_prefix("redirect_url:")
+                .or_else(|| trimmed.strip_prefix("redirect-url:"))
+                .or_else(|| trimmed.strip_prefix("redirect_uri:"))
+                .or_else(|| trimmed.strip_prefix("redirect-uri:"))
+            {
+                in_mcp_keys = false;
+                let url_val = strip_quotes(rest).trim();
+                if !url_val.is_empty() {
+                    cfg.redirect_url = Some(url_val.to_string());
                 }
             } else {
                 in_mcp_keys = false;
@@ -111,11 +160,11 @@ pub fn parse_mcp_keys(yaml_content: &str) -> HashMap<String, String> {
                 .strip_prefix('-')
                 .map(|s| s.trim())
                 .unwrap_or(trimmed);
-            parse_key_entry(item, &mut keys);
+            parse_key_entry(item, &mut cfg.mcp_keys);
         }
     }
 
-    keys
+    cfg
 }
 
 fn strip_quotes(s: &str) -> &str {
@@ -151,19 +200,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_mcp_keys_hyphenated() {
+    fn test_parse_config_yaml_with_base_url_redirect_url_and_keys() {
         let yaml = r#"
+base_url: https://reminders.example.com/
+redirect_url: https://oauth-redirect.googleusercontent.com/r/some-id
 mcp-keys:
   - dudu=someSuperSecretKey
   - alice=anotherSecret=WithEquals
 "#;
-        let keys = parse_mcp_keys(yaml);
+        let cfg = parse_config_yaml(yaml);
         assert_eq!(
-            keys.get("dudu").map(String::as_str),
+            cfg.base_url.as_deref(),
+            Some("https://reminders.example.com")
+        );
+        assert_eq!(
+            cfg.redirect_url.as_deref(),
+            Some("https://oauth-redirect.googleusercontent.com/r/some-id")
+        );
+        assert_eq!(
+            cfg.mcp_keys.get("dudu").map(String::as_str),
             Some("someSuperSecretKey")
         );
         assert_eq!(
-            keys.get("alice").map(String::as_str),
+            cfg.mcp_keys.get("alice").map(String::as_str),
             Some("anotherSecret=WithEquals")
         );
     }
@@ -175,12 +234,23 @@ mcp-keys:
 mcp_keys:
   - "bob=secret123" # inline comment
   - 'carol=secret456'
+redirect_url: "https://vertexaisearch.cloud.google.com/oauth-redirect"
 other_section:
   - ignored=value
 "#;
-        let keys = parse_mcp_keys(yaml);
-        assert_eq!(keys.len(), 2);
-        assert_eq!(keys.get("bob").map(String::as_str), Some("secret123"));
-        assert_eq!(keys.get("carol").map(String::as_str), Some("secret456"));
+        let cfg = parse_config_yaml(yaml);
+        assert_eq!(cfg.mcp_keys.len(), 2);
+        assert_eq!(
+            cfg.mcp_keys.get("bob").map(String::as_str),
+            Some("secret123")
+        );
+        assert_eq!(
+            cfg.mcp_keys.get("carol").map(String::as_str),
+            Some("secret456")
+        );
+        assert_eq!(
+            cfg.redirect_url.as_deref(),
+            Some("https://vertexaisearch.cloud.google.com/oauth-redirect")
+        );
     }
 }

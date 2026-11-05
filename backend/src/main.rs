@@ -88,6 +88,9 @@ pub fn build_app(app_state: Arc<AppState>) -> Router {
         .route("/mcp/oauth/token", post(mcp::oauth_token))
         .route("/oauth/token", post(mcp::oauth_token))
         .route("/token", post(mcp::oauth_token))
+        .route("/mcp/oauth/register", post(mcp::oauth_register))
+        .route("/oauth/register", post(mcp::oauth_register))
+        .route("/register", post(mcp::oauth_register))
         .layer(CorsLayer::permissive());
 
     let static_dir = ServeDir::new("public").not_found_service(ServeFile::new("public/index.html"));

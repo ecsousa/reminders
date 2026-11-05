@@ -35,9 +35,11 @@ The application exposes a Model Context Protocol (MCP) server at `/mcp` (Streama
 - `list_reminders`: List existing pending reminders for the authenticated user.
 
 ### Authentication (`config.yaml`)
-Configure user credentials in the YAML file pointed to by `CONFIG_FILE` (defaults to `/data/config.yaml`):
+Configure the base URL, OAuth redirect URL, and user credentials in the YAML file pointed to by `CONFIG_FILE` (defaults to `/data/config.yaml`):
 
 ```yaml
+base_url: https://reminders.example.com
+redirect_url: https://oauth-redirect.googleusercontent.com/r/...
 mcp-keys:
   - dudu=someSuperSecretKey
 ```
