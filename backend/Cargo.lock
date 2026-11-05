@@ -914,8 +914,10 @@ name = "reminders-backend"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64",
  "chrono",
  "reqwest",
+ "ring",
  "rusqlite",
  "serde",
  "serde_json",
@@ -924,6 +926,7 @@ dependencies = [
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]

@@ -24,6 +24,28 @@ The application can be configured via environment variables:
 - `DEV_USERNAME`: Override the default username in the `dev` profile (default: `dev_user`).
 - `DEV_NAME`: Override the default name in the `dev` profile (default: `Dev User`).
 - `PORT`: The port the backend server listens on (default: `8080`).
+- `CONFIG_FILE`: Path to the YAML configuration file containing MCP keys (default: `/data/config.yaml`).
+
+## MCP Server (`/mcp`)
+
+The application exposes a Model Context Protocol (MCP) server at `/mcp` (Streamable HTTP transport) with OAuth 2.0 / 2.1 authentication.
+
+### Exposed Tools
+- `create_reminder`: Create a new reminder for the authenticated user (`reminder_message`).
+- `list_reminders`: List existing pending reminders for the authenticated user.
+
+### Authentication (`config.yaml`)
+Configure user credentials in the YAML file pointed to by `CONFIG_FILE` (defaults to `/data/config.yaml`):
+
+```yaml
+mcp-keys:
+  - dudu=someSuperSecretKey
+```
+
+When connecting from Gemini (or another MCP client), provide:
+- **MCP Server URL**: `https://your-app-link.com/mcp`
+- **OAuth Client ID**: the username (e.g. `dudu`)
+- **OAuth Client Secret**: the corresponding secret key (e.g. `someSuperSecretKey`)
 
 ## Local Development
 

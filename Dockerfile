@@ -28,6 +28,7 @@ COPY --from=frontend-builder /app/dist/ /app/public/
 
 ENV PORT=8080
 ENV DB_FOLDER=/data
+ENV CONFIG_FILE=/data/config.yaml
 
 EXPOSE 8080
 ENTRYPOINT ["/app/reminders-backend"]
